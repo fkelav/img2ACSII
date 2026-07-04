@@ -6,7 +6,7 @@ img2ascii  Turn any image into colored ASCII art — right in your terminal, or 
 Turn any image into colored ASCII art — right in your terminal, or exported as HTML, ANSI, or plain text.
 
 
-![ASCII art example](<img width="955" height="628" alt="image" src="https://github.com/user-attachments/assets/1f2d6bc2-d45f-4f46-89c6-bc3c59b5dfb4" />
+![ASCII art example](<img width="857" height="610" alt="Screenshot 2026-07-04 234450" src="https://github.com/user-attachments/assets/b5ce3b32-d020-4ba5-90fa-c416b604fe2e" />
 )
 
 ## Features
