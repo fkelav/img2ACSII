@@ -32,6 +32,7 @@ BACKGROUND_COLORS = {
     "black": (0, 0, 0),
     "white": (255, 255, 255),
 }
+BACKGROUND_MODES = ("spaces", *BACKGROUND_COLORS)
 BACKGROUND_CHAR = "."
 
 
@@ -94,15 +95,18 @@ def ask_output_file() -> Path:
     return normalize_output_path(Path(raw_output or DEFAULT_OUTPUT_FILE).expanduser())
 
 
-def ask_background_color(default: str = "black") -> tuple[int, int, int]:
-    choices = "/".join(BACKGROUND_COLORS)
+def ask_background_color(default: str = "spaces") -> tuple[int, int, int] | None:
+    choices = "/".join(BACKGROUND_MODES)
     while True:
-        raw_color = input(f"Transparent background color ({choices}) [{default}]: ").strip().lower()
-        color_name = raw_color or default
+        raw_mode = input(f"Background characters ({choices}) [{default}]: ").strip().lower()
+        mode = raw_mode or default
 
-        if color_name in BACKGROUND_COLORS:
-            print(f"Using {color_name} for transparent pixels.")
-            return BACKGROUND_COLORS[color_name]
+        if mode == "spaces":
+            print("Using spaces for background pixels.")
+            return None
+        if mode in BACKGROUND_COLORS:
+            print(f"Using {mode} characters for background pixels.")
+            return BACKGROUND_COLORS[mode]
 
         print(f"Please choose one of: {choices}.")
 
@@ -354,11 +358,12 @@ def apply_background_chars(
 def render_color_lines(
     resized_image: Image.Image,
     chars: np.ndarray,
-    background_color: tuple[int, int, int] = (0, 0, 0),
+    background_color: tuple[int, int, int] | None = None,
     background_pixels: np.ndarray | None = None,
 ) -> list[str]:
     pixels = np.asarray(resized_image, dtype=np.uint8)
-    bg_red, bg_green, bg_blue = background_color
+    terminal_background = background_color or (0, 0, 0)
+    bg_red, bg_green, bg_blue = terminal_background
     if background_pixels is None:
         background_pixels = np.zeros(chars.shape, dtype=bool)
     lines = []
@@ -366,7 +371,7 @@ def render_color_lines(
     for pixel_row, char_row, background_row in zip(pixels, chars, background_pixels):
         line = []
         for (red, green, blue), char, is_background in zip(pixel_row, char_row, background_row):
-            if is_background:
+            if is_background and background_color is not None:
                 red, green, blue = background_color
             line.append(f"\033[38;2;{red};{green};{blue};48;2;{bg_red};{bg_green};{bg_blue}m{char}")
         lines.append("".join(line) + ANSI_RESET)
@@ -381,7 +386,7 @@ def render_plain_lines(chars: np.ndarray) -> list[str]:
 def render_html(
     resized_image: Image.Image,
     chars: np.ndarray,
-    background_color: tuple[int, int, int] = (0, 0, 0),
+    background_color: tuple[int, int, int] | None = None,
     background_pixels: np.ndarray | None = None,
 ) -> str:
     pixels = np.asarray(resized_image, dtype=np.uint8)
@@ -392,15 +397,16 @@ def render_html(
     for pixel_row, char_row, background_row in zip(pixels, chars, background_pixels):
         line = []
         for (red, green, blue), char, is_background in zip(pixel_row, char_row, background_row):
-            if is_background:
+            if is_background and background_color is not None:
                 red, green, blue = background_color
             escaped_char = html.escape(str(char))
             line.append(f'<span style="color: rgb({red}, {green}, {blue})">{escaped_char}</span>')
         lines.append("".join(line))
 
     body = "\n".join(lines)
-    background_css = f"rgb({background_color[0]}, {background_color[1]}, {background_color[2]})"
-    text_css = "#f4f4f4" if sum(background_color) < 384 else "#111111"
+    page_background = background_color or (0, 0, 0)
+    background_css = f"rgb({page_background[0]}, {page_background[1]}, {page_background[2]})"
+    text_css = "#f4f4f4" if sum(page_background) < 384 else "#111111"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -442,10 +448,11 @@ def convert_image_to_ascii(
     invert: bool = False,
     aspect_correction: float = CHAR_ASPECT_CORRECTION,
     dots: bool = False,
-    background_color: tuple[int, int, int] = (0, 0, 0),
+    background_color: tuple[int, int, int] | None = None,
     contrast_stretch: bool = True,
 ) -> tuple[str, str, str]:
-    image, alpha_mask = load_rgb_image_with_alpha(image_path, background=background_color)
+    composite_background = background_color or (0, 0, 0)
+    image, alpha_mask = load_rgb_image_with_alpha(image_path, background=composite_background)
     resized = resize_for_ascii(
         image,
         rows=rows,
@@ -474,7 +481,8 @@ def convert_image_to_ascii(
     if transparent_pixels.shape == background_pixels.shape:
         background_pixels = background_pixels | transparent_pixels
 
-    chars = apply_background_chars(chars, background_pixels)
+    background_char = BACKGROUND_CHAR if background_color is not None else " "
+    chars = apply_background_chars(chars, background_pixels, background_char=background_char)
     color_lines = render_color_lines(
         resized,
         chars,
@@ -542,9 +550,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ramp", default=ASCII_RAMP, help="Characters from darkest to brightest.")
     parser.add_argument(
         "--bg-color",
-        choices=sorted(BACKGROUND_COLORS),
-        default="black",
-        help="Background color to composite transparent images onto. Default: black.",
+        choices=BACKGROUND_MODES,
+        default="spaces",
+        help="Background character mode. Default: spaces.",
     )
     parser.add_argument(
         "--no-contrast-stretch",
@@ -589,7 +597,7 @@ def run_interactive() -> tuple[
     float,
     bool,
     bool,
-    tuple[int, int, int],
+    tuple[int, int, int] | None,
     bool,
 ] | None:
     print("Image to colored ASCII converter")
@@ -637,7 +645,7 @@ def generate_and_save(
     aspect_correction: float,
     force: bool,
     dots: bool,
-    background_color: tuple[int, int, int],
+    background_color: tuple[int, int, int] | None,
     contrast_stretch: bool,
 ) -> bool:
     try:
@@ -711,7 +719,7 @@ def main() -> None:
         aspect_correction = args.aspect_correction
         force = args.force
         dots = args.dots
-        background_color = BACKGROUND_COLORS[args.bg_color]
+        background_color = None if args.bg_color == "spaces" else BACKGROUND_COLORS[args.bg_color]
         contrast_stretch = args.contrast_stretch
 
         if not image_path.is_file():
